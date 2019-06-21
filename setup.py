@@ -31,7 +31,7 @@ AUTHOR_EMAIL = "cxiaolong6@gmail.com"
 
 URL = None
 
-VERSION = "0.0.5"
+VERSION = "0.0.6"
 
 LICENSE = "MIT"
 
