@@ -68,9 +68,9 @@ class RabbitMQ(object):
         self.consumer = CP(connection, self.message_callback_list)
         self.send_exchange_name = self.config.get('RABMQ_SEND_EXCHANGE_NAME')
         self.send_exchange_type = self.config.get('RABMQ_SEND_EXCHANGE_TYPE') or ExchangeType.TOPIC
-        @app.before_first_request
-        def run_consumer():
-            self._run()
+
+    def run_consumer(self):
+        self._run()
 
     def _run(self):
         thread = Thread(target=self.consumer.run)

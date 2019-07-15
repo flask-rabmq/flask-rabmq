@@ -33,4 +33,5 @@ def flask_rabmq_test(body):
 
 
 if __name__ == '__main__':
+    ramq.run_consumer()
     app.run()

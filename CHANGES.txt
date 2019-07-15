@@ -1,0 +1,8 @@
+.. currentmodule:: flask-rabmq
+
+Version 0.0.9
+-------------
+
+Released 2019-07-15
+
+-  delete init_app run consumer. modify manual run consumer.
