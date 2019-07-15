@@ -29,9 +29,9 @@ AUTHOR = "chenxiaolong"
 AUTHOR_EMAIL = "cxiaolong6@gmail.com"
 
 
-URL = None
+URL = 'https://github.com/flask-rabmq/flask-rabmq'
 
-VERSION = "0.0.6"
+VERSION = "0.0.7"
 
 LICENSE = "MIT"
 
@@ -58,5 +58,5 @@ setup(
     packages=PACKAGES,
     include_package_data=True,
     zip_safe=True,
-    python_requires=">=3.6.0",
+    python_requires=">=3.6.0,>=2.7, <=3",
 )

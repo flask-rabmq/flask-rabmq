@@ -7,7 +7,7 @@ that make it easier to accomplish common tasks.
 
 ## Installing
 
-Install and update using `pip`_:
+Install and update using `pip`:
 
 ```
 $ pip install -U Flask-Rabmq
