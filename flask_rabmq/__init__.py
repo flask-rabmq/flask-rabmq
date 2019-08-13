@@ -1,6 +1,7 @@
 # -*- coding:utf-8 -*-
 
 import json
+import sys
 import random
 import traceback
 from functools import update_wrapper
@@ -14,6 +15,16 @@ from kombu.mixins import ConsumerProducerMixin
 from flask_rabmq.custom_logging import CustomLogging
 from flask_rabmq.rabmq_exception import ExchangeNameError
 from flask_rabmq.rabmq_exception import RoutingKeyError
+
+
+# Syntax sugar.
+_ver = sys.version_info
+
+#: Python 2.x?
+is_py2 = (_ver[0] == 2)
+
+#: Python 3.x?
+is_py3 = (_ver[0] == 3)
 
 logger = CustomLogging()
 
@@ -107,10 +118,16 @@ class RabbitMQ(object):
                             routing_key,
                             exchange_name)
                 logger.info(handler_flag, 'received data:%s', body)
-                if isinstance(body, str):
-                    message_id = json.loads(body).get('message_id')
+                if is_py2:
+                    if isinstance(body, (str, eval('unicode'))):
+                        message_id = json.loads(body).get('message_id')
+                    else:
+                        message_id = body.get('message_id')
                 else:
-                    message_id = body.get('message_id')
+                    if isinstance(body, str):
+                        message_id = json.loads(body).get('message_id')
+                    else:
+                        message_id = body.get('message_id')
                 if not message_id:
                     logger.error(handler_flag, 'message not id: %s', body)
                     message.ack()
@@ -120,8 +137,12 @@ class RabbitMQ(object):
                 message.ack()
                 return True
             try:
-                if not isinstance(body, str):
-                    body = json.dumps(body)
+                if is_py2:
+                    if not isinstance(body, (str, eval('unicode'))):
+                        body = json.dumps(body)
+                else:
+                    if not isinstance(body, str):
+                        body = json.dumps(body)
                 with self.app.app_context():
                     result = func(body)
                 if result:
