@@ -103,6 +103,8 @@ class RabbitMQ(object):
     @setup_method
     def add_message_rule(self, func, queue_name, routing_key,
                          exchange_name, exchange_type=ExchangeType.DEFAULT, retry_count=3):
+        if not queue_name:
+            queue_name = func.__name__
         if not routing_key:
             raise RoutingKeyError('routing_key 没有指定')
 
@@ -156,23 +158,21 @@ class RabbitMQ(object):
                         return True
                     headers = {'retry': int(message.headers.get('retry') or 0) + 1}
                     message.ack()
-                    self.send(body=body, routing_key=routing_key,
-                              exchange_name=exchange_name, exchange_type=exchange_type,
-                              headers=headers, log_flag=handler_flag)
+                    self.retry_send(body=body, queue_name=queue_name,
+                                    headers=headers, log_flag=handler_flag)
                     return False
             except Exception as e:
                 logger.info(handler_flag, 'handler message failed: %s', traceback.format_exc())
                 headers = {'retry': int(message.headers.get('retry') or 0) + 1}
                 message.ack()
-                self.send(body=body, routing_key=routing_key,
-                          exchange_name=exchange_name, exchange_type=exchange_type,
-                          headers=headers, log_flag=handler_flag)
+                self.retry_send(body=body, queue_name=queue_name,
+                                headers=headers, log_flag=handler_flag)
                 return False
             finally:
                 logger.info(handler_flag, 'message handler end: %s', func.__name__)
 
         exchange = Exchange(name=exchange_name, type=exchange_type or ExchangeType.DEFAULT)
-        queue = Queue(name=queue_name or func.__name__, exchange=exchange, routing_key=routing_key)
+        queue = Queue(name=queue_name, exchange=exchange, routing_key=routing_key)
         tmp_dict = {'queue': queue, 'callback': _callback}
         self.message_callback_list.append(tmp_dict)
 
@@ -191,3 +191,8 @@ class RabbitMQ(object):
             retry=True,
             headers=headers,
         )
+
+    def retry_send(self, body, queue_name, headers=None, log_flag='', **kwargs):
+        logger.info(log_flag, 'send data: %s', body)
+        simple_queue = self.consumer.connection.SimpleQueue(queue_name)
+        simple_queue.put(body, headers=headers, retry=True, **kwargs)
