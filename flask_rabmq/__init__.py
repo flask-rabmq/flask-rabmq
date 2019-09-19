@@ -184,6 +184,7 @@ class RabbitMQ(object):
             auto_delete=False,
             durable=True
         )
+        exchange.declare(channel=self.consumer.producer.channel)
         self.consumer.producer.publish(
             body=body,
             exchange=exchange,
