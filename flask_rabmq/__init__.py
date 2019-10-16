@@ -11,6 +11,7 @@ from kombu import Connection
 from kombu import Exchange
 from kombu import Queue
 from kombu.mixins import ConsumerProducerMixin
+from kombu.exceptions import KombuError
 
 from flask_rabmq.custom_logging import CustomLogging
 from flask_rabmq.rabmq_exception import ExchangeNameError
@@ -56,7 +57,10 @@ class CP(ConsumerProducerMixin):
         for consumer in self.rpc_class_list:
             logger.info("open channel, queue name: %s" % consumer['queue'])
             consumer_set.append(
-                Consumer(queues=consumer['queue'], callbacks=[consumer['callback']])
+                Consumer(
+                    queues=consumer['queue'], callbacks=[consumer['callback']],
+                    prefetch_count=1  # 一个连接中只能有一个消息存在
+                )
             )
 
         return consumer_set
@@ -161,6 +165,12 @@ class RabbitMQ(object):
                     self.retry_send(body=body, queue_name=queue_name,
                                     headers=headers, log_flag=handler_flag)
                     return False
+            except ConnectionError:  # 不可预测的Connect错误
+                logger.info(handler_flag, 'Connection Error pass: %s', traceback.format_exc())
+                return True
+            except KombuError:  # 不可预测的kombu错误
+                logger.info(handler_flag, 'Kombu Error pass: %s', traceback.format_exc())
+                return True
             except Exception as e:
                 logger.info(handler_flag, 'handler message failed: %s', traceback.format_exc())
                 headers = {'retry': int(message.headers.get('retry') or 0) + 1}
