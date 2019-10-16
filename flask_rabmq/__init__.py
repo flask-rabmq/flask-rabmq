@@ -116,70 +116,74 @@ class RabbitMQ(object):
             raise ExchangeNameError('exchange_name 没有指定')
 
         def _callback(body, message):
-            handler_flag = ''.join(random.sample('0123456789', 10))
-            logger.info(handler_flag, 'message handler start: %s', func.__name__)
             try:
-                logger.info(handler_flag,
-                            'received_message-route_key:%s-exchange:%s',
-                            routing_key,
-                            exchange_name)
-                logger.info(handler_flag, 'received data:%s', body)
-                if is_py2:
-                    if isinstance(body, (str, eval('unicode'))):
-                        message_id = json.loads(body).get('message_id')
+                handler_flag = ''.join(random.sample('0123456789', 10))
+                logger.info(handler_flag, 'message handler start: %s', func.__name__)
+                try:
+                    logger.info(handler_flag,
+                                'received_message-route_key:%s-exchange:%s',
+                                routing_key,
+                                exchange_name)
+                    logger.info(handler_flag, 'received data:%s', body)
+                    if is_py2:
+                        if isinstance(body, (str, eval('unicode'))):
+                            message_id = json.loads(body).get('message_id')
+                        else:
+                            message_id = body.get('message_id')
                     else:
-                        message_id = body.get('message_id')
-                else:
-                    if isinstance(body, str):
-                        message_id = json.loads(body).get('message_id')
-                    else:
-                        message_id = body.get('message_id')
-                if not message_id:
-                    logger.error(handler_flag, 'message not id: %s', body)
-                    message.ack()
-                    return True
-            except:
-                logger.error(handler_flag, 'parse message body failed:%s', body)
-                message.ack()
-                return True
-            try:
-                if is_py2:
-                    if not isinstance(body, (str, eval('unicode'))):
-                        body = json.dumps(body)
-                else:
-                    if not isinstance(body, str):
-                        body = json.dumps(body)
-                with self.app.app_context():
-                    result = func(body)
-                if result:
-                    message.ack()
-                    return True
-                else:
-                    logger.info(handler_flag, 'no ack message')
-                    if int(message.headers.get('retry') or 0) >= retry_count:
+                        if isinstance(body, str):
+                            message_id = json.loads(body).get('message_id')
+                        else:
+                            message_id = body.get('message_id')
+                    if not message_id:
+                        logger.error(handler_flag, 'message not id: %s', body)
                         message.ack()
-                        logger.info(handler_flag, 'retry %s count handler failed: %s', retry_count, body)
                         return True
+                except:
+                    logger.error(handler_flag, 'parse message body failed:%s', body)
+                    message.ack()
+                    return True
+                try:
+                    if is_py2:
+                        if not isinstance(body, (str, eval('unicode'))):
+                            body = json.dumps(body)
+                    else:
+                        if not isinstance(body, str):
+                            body = json.dumps(body)
+                    with self.app.app_context():
+                        result = func(body)
+                    if result:
+                        message.ack()
+                        return True
+                    else:
+                        logger.info(handler_flag, 'no ack message')
+                        if int(message.headers.get('retry') or 0) >= retry_count:
+                            message.ack()
+                            logger.info(handler_flag, 'retry %s count handler failed: %s', retry_count, body)
+                            return True
+                        headers = {'retry': int(message.headers.get('retry') or 0) + 1}
+                        message.ack()
+                        self.retry_send(body=body, queue_name=queue_name,
+                                        headers=headers, log_flag=handler_flag)
+                        return False
+                except ConnectionError:  # 不可预测的Connect错误
+                    logger.info(handler_flag, 'Connection Error pass: %s', traceback.format_exc())
+                    return True
+                except KombuError:  # 不可预测的kombu错误
+                    logger.info(handler_flag, 'Kombu Error pass: %s', traceback.format_exc())
+                    return True
+                except Exception as e:
+                    logger.info(handler_flag, 'handler message failed: %s', traceback.format_exc())
                     headers = {'retry': int(message.headers.get('retry') or 0) + 1}
                     message.ack()
                     self.retry_send(body=body, queue_name=queue_name,
                                     headers=headers, log_flag=handler_flag)
                     return False
-            except ConnectionError:  # 不可预测的Connect错误
-                logger.info(handler_flag, 'Connection Error pass: %s', traceback.format_exc())
-                return True
-            except KombuError:  # 不可预测的kombu错误
-                logger.info(handler_flag, 'Kombu Error pass: %s', traceback.format_exc())
-                return True
+                finally:
+                    logger.info(handler_flag, 'message handler end: %s', func.__name__)
             except Exception as e:
-                logger.info(handler_flag, 'handler message failed: %s', traceback.format_exc())
-                headers = {'retry': int(message.headers.get('retry') or 0) + 1}
-                message.ack()
-                self.retry_send(body=body, queue_name=queue_name,
-                                headers=headers, log_flag=handler_flag)
-                return False
-            finally:
-                logger.info(handler_flag, 'message handler end: %s', func.__name__)
+                logger.info('unknown error: %s' % traceback.format_exc())
+                return True
 
         exchange = Exchange(name=exchange_name, type=exchange_type or ExchangeType.DEFAULT)
         queue = Queue(name=queue_name, exchange=exchange, routing_key=routing_key)
