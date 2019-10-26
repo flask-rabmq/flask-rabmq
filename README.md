@@ -41,7 +41,11 @@ ramq.init_app(app=app)
 
 @app.route('/')
 def hello_world():
+    # send message
     ramq.send({'message_id': 222222, 'a': 7}, routing_key='flask_rabmq.test', exchange_name='flask_rabmq')
+    # delay send message, expiration second(support float).
+    ramq.delay_send({'message_id': 333333, 'a': 7}, routing_key='flask_rabmq.test', exchange_name='flask_rabmq',
+                    delay=10)
     return 'Hello World!'
 
 

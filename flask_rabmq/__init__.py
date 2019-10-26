@@ -1,5 +1,6 @@
 # -*- coding:utf-8 -*-
 
+import re
 import json
 import sys
 import random
@@ -211,3 +212,16 @@ class RabbitMQ(object):
         logger.info(log_flag, 'send data: %s', body)
         simple_queue = self.consumer.connection.SimpleQueue(queue_name)
         simple_queue.put(body, headers=headers, retry=True, **kwargs)
+
+    def delay_send(self, body, routing_key, delay=None, exchange_name=None, log_flag=None, **kwargs):
+        logger.info(log_flag, 'send data: %s', body)
+        dead_letter_params = {
+            'x-dead-letter-routing-key': routing_key,
+            'x-dead-letter-exchange': exchange_name
+        }
+        queue_name = '%s_%s' % (exchange_name, re.sub('[^0-9a-zA-Z]+', '', routing_key))
+        simple_queue = self.consumer.connection.SimpleQueue(
+            queue_name,
+            queue_args=dead_letter_params
+        )
+        simple_queue.put(body, retry=True, expiration=delay, **kwargs)
