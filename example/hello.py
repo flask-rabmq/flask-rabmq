@@ -15,6 +15,8 @@ app = Flask(__name__)
 app.config.setdefault('RABMQ_RABBITMQ_URL', 'amqp://username:password@ip:port/dev_vhost')
 app.config.setdefault('RABMQ_SEND_EXCHANGE_NAME', 'flask_rabmq')
 app.config.setdefault('RABMQ_SEND_EXCHANGE_TYPE', 'topic')
+app.config.setdefault('RABMQ_SEND_POOL_SIZE', 2)
+app.config.setdefault('RABMQ_SEND_POOL_ACQUIRE_TIMEOUT', 5)
 
 ramq = RabbitMQ()
 ramq.init_app(app=app)

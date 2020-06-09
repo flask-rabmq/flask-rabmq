@@ -74,6 +74,7 @@ class RabbitMQ(object):
         self.send_exchange_type = None
         self.config = None
         self.consumer = None
+        self.connection_pool = None
         self.app = app
         self.message_callback_list = []
         if app is not None:
@@ -83,6 +84,7 @@ class RabbitMQ(object):
         self.app = app
         self.config = app.config
         connection = Connection(self.config.get('RABMQ_RABBITMQ_URL'))
+        self.connection_pool = connection.Pool(self.config.get('RABMQ_SEND_POOL_SIZE') or 2)
         self.consumer = CP(connection, self.message_callback_list)
         self.send_exchange_name = self.config.get('RABMQ_SEND_EXCHANGE_NAME')
         self.send_exchange_type = self.config.get('RABMQ_SEND_EXCHANGE_TYPE') or ExchangeType.TOPIC
@@ -199,14 +201,19 @@ class RabbitMQ(object):
             auto_delete=False,
             durable=True
         )
-        exchange.declare(channel=self.consumer.producer.channel)
-        self.consumer.producer.publish(
-            body=body,
-            exchange=exchange,
-            routing_key=routing_key,
-            retry=True,
-            headers=headers,
-        )
+        with self.connection_pool.acquire(
+                block=True,
+                timeout=self.config.get('RABMQ_SEND_POOL_ACQUIRE_TIMEOUT') or 5
+        ) as connect:
+            channel = connect.channel()
+            exchange.declare(channel=channel)
+            self.consumer.producer.publish(
+                body=body,
+                exchange=exchange,
+                routing_key=routing_key,
+                retry=True,
+                headers=headers,
+            )
 
     def retry_send(self, body, queue_name, headers=None, log_flag='', **kwargs):
         logger.info(log_flag, 'send data: %s', body)
