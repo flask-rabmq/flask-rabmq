@@ -5,6 +5,7 @@ import json
 import sys
 import random
 import traceback
+from queue import Queue as SendQueue
 from functools import update_wrapper
 from threading import Thread
 
@@ -74,20 +75,23 @@ class RabbitMQ(object):
         self.send_exchange_type = None
         self.config = None
         self.consumer = None
-        self.connection_pool = None
+        self.connection = None
+        self.send_connection = None
         self.app = app
         self.message_callback_list = []
+        self.wait_send_queue = None
         if app is not None:
             self.init_app(app)
 
     def init_app(self, app):
         self.app = app
         self.config = app.config
-        connection = Connection(self.config.get('RABMQ_RABBITMQ_URL'))
-        self.connection_pool = connection.Pool(self.config.get('RABMQ_SEND_POOL_SIZE') or 2)
-        self.consumer = CP(connection, self.message_callback_list)
+        self.connection = Connection(self.config.get('RABMQ_RABBITMQ_URL'))
+        self.consumer = CP(self.connection, self.message_callback_list)
+        self.send_connection = self.connection.clone()
         self.send_exchange_name = self.config.get('RABMQ_SEND_EXCHANGE_NAME')
         self.send_exchange_type = self.config.get('RABMQ_SEND_EXCHANGE_TYPE') or ExchangeType.TOPIC
+        self.wait_send_queue = SendQueue(maxsize=1)
 
     def run_consumer(self):
         self._run()
@@ -194,26 +198,35 @@ class RabbitMQ(object):
         self.message_callback_list.append(tmp_dict)
 
     def send(self, body, routing_key, exchange_name=None, exchange_type=None, headers=None, log_flag=None):
-        logger.info(log_flag, 'send data: %s', body)
         exchange = Exchange(
             name=exchange_name or self.send_exchange_name,
             type=exchange_type or self.send_exchange_type,
             auto_delete=False,
             durable=True
         )
-        with self.connection_pool.acquire(
-                block=True,
-                timeout=self.config.get('RABMQ_SEND_POOL_ACQUIRE_TIMEOUT') or 5
-        ) as connect:
-            channel = connect.channel()
+        while True:
+            try:
+                self.wait_send_queue.join()
+                self.wait_send_queue.put(body, block=False)
+                break
+            except Exception as E:
+                logger.info('wait lock')
+                pass
+        try:
+            channel = self.send_connection.default_channel
             exchange.declare(channel=channel)
             self.consumer.producer.publish(
-                body=body,
+                body=self.wait_send_queue.get(),
                 exchange=exchange,
                 routing_key=routing_key,
                 retry=True,
                 headers=headers,
             )
+            logger.info(log_flag, 'send data: %s', body)
+        except Exception as E:
+            pass
+        finally:
+            self.wait_send_queue.task_done()
 
     def retry_send(self, body, queue_name, headers=None, log_flag='', **kwargs):
         logger.info(log_flag, 'send data: %s', body)
