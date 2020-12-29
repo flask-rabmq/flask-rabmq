@@ -6,6 +6,7 @@ import sys
 import random
 import traceback
 from queue import Queue as SendQueue
+from queue import Full
 from functools import update_wrapper
 from threading import Thread
 
@@ -209,8 +210,12 @@ class RabbitMQ(object):
                 self.wait_send_queue.join()
                 self.wait_send_queue.put(body, block=False)
                 break
-            except Exception as E:
+            except Full:
                 logger.info('wait lock')
+                pass
+            except Exception as E:
+                logger.error(traceback.format_exc())
+                self.wait_send_queue = SendQueue(maxsize=1)
                 pass
         try:
             channel = self.send_connection.default_channel
