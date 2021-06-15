@@ -5,10 +5,9 @@ import json
 import sys
 import random
 import traceback
-from queue import Queue as SendQueue
-from queue import Full
 from functools import update_wrapper
 from threading import Thread
+from threading import RLock
 
 from kombu import Connection
 from kombu import Exchange
@@ -77,10 +76,10 @@ class RabbitMQ(object):
         self.config = None
         self.consumer = None
         self.connection = None
-        self.send_connection = None
+        self.send_connection_pool = None
         self.app = app
         self.message_callback_list = []
-        self.wait_send_queue = None
+        self.wait_send_lock = None
         if app is not None:
             self.init_app(app)
 
@@ -89,10 +88,10 @@ class RabbitMQ(object):
         self.config = app.config
         self.connection = Connection(self.config.get('RABMQ_RABBITMQ_URL'))
         self.consumer = CP(self.connection, self.message_callback_list)
-        self.send_connection = self.connection.clone()
+        self.send_connection_pool = self.connection.Pool(limit=self.config.get('RABMQ_SEND_CONNECT_POOL') or 10)
         self.send_exchange_name = self.config.get('RABMQ_SEND_EXCHANGE_NAME')
         self.send_exchange_type = self.config.get('RABMQ_SEND_EXCHANGE_TYPE') or ExchangeType.TOPIC
-        self.wait_send_queue = SendQueue(maxsize=1)
+        self.wait_send_lock = RLock()
 
     def run_consumer(self):
         self._run()
@@ -205,38 +204,26 @@ class RabbitMQ(object):
             auto_delete=False,
             durable=True
         )
-        while True:
-            try:
-                self.wait_send_queue.join()
-                self.wait_send_queue.put(body, block=False)
-                break
-            except Full:
-                logger.info('wait lock')
-                pass
-            except Exception as E:
-                logger.error(traceback.format_exc())
-                self.wait_send_queue = SendQueue(maxsize=1)
-                pass
-        try:
-            channel = self.send_connection.default_channel
+        with self.wait_send_lock:
+            conn = self.send_connection_pool.acquire()
+            channel = conn.default_channel
             exchange.declare(channel=channel)
             self.consumer.producer.publish(
-                body=self.wait_send_queue.get(),
+                body=body,
                 exchange=exchange,
                 routing_key=routing_key,
                 retry=True,
                 headers=headers,
             )
             logger.info(log_flag, 'send data: %s', body)
-        except Exception as E:
-            pass
-        finally:
-            self.wait_send_queue.task_done()
+            conn.release()
 
     def retry_send(self, body, queue_name, headers=None, log_flag='', **kwargs):
         logger.info(log_flag, 'send data: %s', body)
-        simple_queue = self.consumer.connection.SimpleQueue(queue_name)
+        conn = self.send_connection_pool.acquire()
+        simple_queue = conn.SimpleQueue(queue_name)
         simple_queue.put(body, headers=headers, retry=True, **kwargs)
+        conn.release()
 
     def delay_send(self, body, routing_key, delay=None, exchange_name=None, log_flag=None, **kwargs):
         logger.info(log_flag, 'send data: %s', body)
@@ -245,8 +232,12 @@ class RabbitMQ(object):
             'x-dead-letter-exchange': exchange_name
         }
         queue_name = '%s_%s' % (exchange_name, re.sub('[^0-9a-zA-Z]+', '', routing_key))
-        simple_queue = self.consumer.connection.SimpleQueue(
+        conn = self.send_connection_pool.acquire()
+        channel = conn.default_channel
+        simple_queue = conn.SimpleQueue(
             queue_name,
-            queue_args=dead_letter_params
+            queue_args=dead_letter_params,
+            channel=channel
         )
         simple_queue.put(body, retry=True, expiration=delay, **kwargs)
+        conn.release()
