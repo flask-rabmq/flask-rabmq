@@ -76,7 +76,7 @@ class RabbitMQ(object):
         self.config = None
         self.consumer = None
         self.connection = None
-        self.send_connection_pool = None
+        self.send_connection = None
         self.app = app
         self.message_callback_list = []
         self.wait_send_lock = None
@@ -88,7 +88,7 @@ class RabbitMQ(object):
         self.config = app.config
         self.connection = Connection(self.config.get('RABMQ_RABBITMQ_URL'))
         self.consumer = CP(self.connection, self.message_callback_list)
-        self.send_connection_pool = self.connection.Pool(limit=self.config.get('RABMQ_SEND_CONNECT_POOL') or 10)
+        self.send_connection = self.connection.clone()
         self.send_exchange_name = self.config.get('RABMQ_SEND_EXCHANGE_NAME')
         self.send_exchange_type = self.config.get('RABMQ_SEND_EXCHANGE_TYPE') or ExchangeType.TOPIC
         self.wait_send_lock = RLock()
@@ -205,8 +205,7 @@ class RabbitMQ(object):
             durable=True
         )
         with self.wait_send_lock:
-            conn = self.send_connection_pool.acquire()
-            channel = conn.default_channel
+            channel = self.send_connection.default_channel
             exchange.declare(channel=channel)
             self.consumer.producer.publish(
                 body=body,
@@ -216,14 +215,12 @@ class RabbitMQ(object):
                 headers=headers,
             )
             logger.info(log_flag, 'send data: %s', body)
-            conn.release()
 
     def retry_send(self, body, queue_name, headers=None, log_flag='', **kwargs):
         logger.info(log_flag, 'send data: %s', body)
-        conn = self.send_connection_pool.acquire()
-        simple_queue = conn.SimpleQueue(queue_name)
-        simple_queue.put(body, headers=headers, retry=True, **kwargs)
-        conn.release()
+        with self.wait_send_lock:
+            simple_queue = self.send_connection.SimpleQueue(queue_name)
+            simple_queue.put(body, headers=headers, retry=True, **kwargs)
 
     def delay_send(self, body, routing_key, delay=None, exchange_name=None, log_flag=None, **kwargs):
         logger.info(log_flag, 'send data: %s', body)
@@ -232,12 +229,11 @@ class RabbitMQ(object):
             'x-dead-letter-exchange': exchange_name
         }
         queue_name = '%s_%s' % (exchange_name, re.sub('[^0-9a-zA-Z]+', '', routing_key))
-        conn = self.send_connection_pool.acquire()
-        channel = conn.default_channel
-        simple_queue = conn.SimpleQueue(
-            queue_name,
-            queue_args=dead_letter_params,
-            channel=channel
-        )
-        simple_queue.put(body, retry=True, expiration=delay, **kwargs)
-        conn.release()
+        with self.wait_send_lock:
+            channel = self.send_connection.default_channel
+            simple_queue = self.send_connection.SimpleQueue(
+                queue_name,
+                queue_args=dead_letter_params,
+                channel=channel
+            )
+            simple_queue.put(body, retry=True, expiration=delay, **kwargs)
