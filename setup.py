@@ -1,6 +1,5 @@
 import codecs
 import os
-import sys
 
 try:
     from setuptools import setup
@@ -31,7 +30,7 @@ AUTHOR_EMAIL = "cxiaolong6@gmail.com"
 
 URL = 'https://github.com/flask-rabmq/flask-rabmq'
 
-VERSION = "0.0.21"
+VERSION = "0.0.22"
 
 LICENSE = "MIT"
 

@@ -1,4 +1,5 @@
 import logging
+import random
 
 from flask import Flask
 
@@ -15,8 +16,6 @@ app = Flask(__name__)
 app.config.setdefault('RABMQ_RABBITMQ_URL', 'amqp://username:password@ip:port/dev_vhost')
 app.config.setdefault('RABMQ_SEND_EXCHANGE_NAME', 'flask_rabmq')
 app.config.setdefault('RABMQ_SEND_EXCHANGE_TYPE', 'topic')
-app.config.setdefault('RABMQ_SEND_POOL_SIZE', 2)
-app.config.setdefault('RABMQ_SEND_POOL_ACQUIRE_TIMEOUT', 5)
 
 ramq = RabbitMQ()
 ramq.init_app(app=app)
@@ -28,16 +27,29 @@ def hello_world():
     ramq.send({'message_id': 222222, 'a': 7}, routing_key='flask_rabmq.test', exchange_name='flask_rabmq')
     # delay send message, expiration second(support float).
     ramq.delay_send({'message_id': 333333, 'a': 7}, routing_key='flask_rabmq.test', exchange_name='flask_rabmq',
-                    delay=10)
+                    delay=random.randint(1, 20))
     return 'Hello World!'
 
 
+# received message
 @ramq.queue(exchange_name='flask_rabmq', routing_key='flask_rabmq.test')
 def flask_rabmq_test(body):
+    """
+
+    :param body: json string.
+    :return: True/False
+        return True, the message will be acknowledged.
+        return False, the message is resended(default 3 count) to the queue.
+        :exception, the message will not be acknowledged.
+    """
     logger.info(body)
     return True
 
 
+ramq.run_consumer()
+
+
 if __name__ == '__main__':
-    ramq.run_consumer()
     app.run()
+else:
+    application = app
