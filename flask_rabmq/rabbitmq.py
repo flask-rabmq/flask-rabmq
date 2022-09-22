@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import traceback
+import uuid
 from threading import RLock
 from threading import Thread
 
@@ -19,7 +20,7 @@ from .utils import ExchangeType
 from .utils import is_py2
 from .utils import setup_method
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("flask_rabmq")
 
 
 class RabbitMQ(object):
@@ -53,21 +54,31 @@ class RabbitMQ(object):
         thread.setDaemon(True)
         thread.start()
 
-    def queue(self, exchange_name, routing_key, queue_name=None, exchange_type=None, retry_count=3):
+    def queue(
+            self, exchange_name, routing_key, queue_name=None, exchange_type=None,
+            retry_count=3, process_alone=False
+    ):
 
         def decorator(f):
-            self.add_message_rule(f, queue_name=queue_name, exchange_type=exchange_type,
-                                  exchange_name=exchange_name, routing_key=routing_key,
-                                  retry_count=retry_count)
+            self.add_message_rule(
+                f, queue_name=queue_name, exchange_type=exchange_type,
+                exchange_name=exchange_name, routing_key=routing_key,
+                retry_count=retry_count, process_alone=process_alone
+            )
             return f
 
         return decorator
 
     @setup_method
-    def add_message_rule(self, func, queue_name, routing_key,
-                         exchange_name, exchange_type=ExchangeType.DEFAULT, retry_count=3):
+    def add_message_rule(
+            self, func, queue_name, routing_key,
+            exchange_name, exchange_type=ExchangeType.DEFAULT, retry_count=3,
+            process_alone=False
+    ):
         if not queue_name:
             queue_name = func.__name__
+        if process_alone:
+            queue_name = "%s_%s" % (queue_name, str(uuid.uuid4()).replace("-", ""))
         if not routing_key:
             raise RoutingKeyError('routing_key 没有指定')
 
@@ -120,27 +131,23 @@ class RabbitMQ(object):
                             return True
                         headers = {'retry': int(message.headers.get('retry') or 0) + 1}
                         message.ack()
-                        self.retry_send(body=body, queue_name=queue_name,
-                                        headers=headers)
+                        self.retry_send(body=body, queue_name=queue_name, headers=headers)
                         return False
                 except KombuError:  # 不可预测的kombu错误
-                    logger.info('Kombu Error pass: %s', traceback.format_exc())
+                    logger.error('Kombu Error pass: %s', traceback.format_exc())
                     return True
                 except Exception as e:
-                    logger.info('handler message failed: %s', traceback.format_exc())
-                    headers = {'retry': int(message.headers.get('retry') or 0) + 1}
-                    message.ack()
-                    self.retry_send(body=body, queue_name=queue_name,
-                                    headers=headers, )
+                    logger.error('handler message failed: %s', traceback.format_exc())
+                    message.requeue()
                     return False
                 finally:
                     logger.info('message handler end: %s', func.__name__)
             except Exception as e:
-                logger.info('unknown error: %s' % traceback.format_exc())
+                logger.error('unknown error: %s' % traceback.format_exc())
                 return True
 
         exchange = Exchange(name=exchange_name, type=exchange_type or ExchangeType.DEFAULT)
-        queue = Queue(name=queue_name, exchange=exchange, routing_key=routing_key)
+        queue = Queue(name=queue_name, exchange=exchange, routing_key=routing_key, auto_delete=process_alone)
         tmp_dict = {'queue': queue, 'callback': _callback}
         self.message_callback_list.append(tmp_dict)
 
