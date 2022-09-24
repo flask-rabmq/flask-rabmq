@@ -58,6 +58,16 @@ class RabbitMQ(object):
             self, exchange_name, routing_key, queue_name=None, exchange_type=None,
             retry_count=3, process_alone=False
     ):
+        """
+
+        :param exchange_name:
+        :param routing_key:
+        :param queue_name:
+        :param exchange_type:
+        :param retry_count: 当消费方法返回结果为False的表达式时生效。
+        :param process_alone: if True, queue is not durable.
+        :return:
+        """
 
         def decorator(f):
             self.add_message_rule(
