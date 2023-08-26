@@ -4,7 +4,7 @@ import logging
 
 from kombu.mixins import ConsumerProducerMixin
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("flask_rabmq")
 
 
 class CP(ConsumerProducerMixin):

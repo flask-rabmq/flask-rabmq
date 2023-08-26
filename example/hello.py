@@ -46,6 +46,18 @@ def flask_rabmq_test(body):
     return True
 
 
+@ramq.middleware("handle_before")
+def mq_handler_before(body, message):
+    logger.info('rabmq before handler....')
+    logger.info('body: %s, message: %s', body, message)
+
+
+@ramq.middleware(attach_to="handle_after")
+def mq_handle_after(body, message):
+    logger.info('rabmq after handler....')
+    logger.info('body: %s, message: %s', body, message)
+
+
 ramq.run_consumer()
 
 

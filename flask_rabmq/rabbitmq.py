@@ -16,6 +16,7 @@ from kombu.exceptions import KombuError
 from .exceptions import ExchangeNameError
 from .exceptions import RoutingKeyError
 from .consumer_producer import CP
+from .middleware import MiddlewareMixin
 from .utils import ExchangeType
 from .utils import is_py2
 from .utils import setup_method
@@ -23,7 +24,7 @@ from .utils import setup_method
 logger = logging.getLogger("flask_rabmq")
 
 
-class RabbitMQ(object):
+class RabbitMQ(MiddlewareMixin):
 
     def __init__(self, app=None):
         self.send_exchange_name = None
@@ -97,6 +98,7 @@ class RabbitMQ(object):
 
         def _callback(body, message):
             try:
+                self.on_handle_before(body, message)
                 logger.info('message handler start: %s', func.__name__)
                 try:
                     logger.info('received message routing_key:%s, exchange:%s',
@@ -152,6 +154,7 @@ class RabbitMQ(object):
                     return False
                 finally:
                     logger.info('message handler end: %s', func.__name__)
+                    self.on_handle_after(body, message)
             except Exception as e:
                 logger.error('unknown error: %s' % traceback.format_exc())
                 return True

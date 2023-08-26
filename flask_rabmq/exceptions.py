@@ -6,3 +6,7 @@ class RoutingKeyError(Exception):
 
 class ExchangeNameError(Exception):
     pass
+
+
+class MiddlewareAttachToNameError(Exception):
+    pass
