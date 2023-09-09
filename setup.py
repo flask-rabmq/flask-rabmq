@@ -30,7 +30,7 @@ AUTHOR_EMAIL = "cxiaolong6@gmail.com"
 
 URL = 'https://github.com/flask-rabmq/flask-rabmq'
 
-VERSION = "0.0.24"
+VERSION = "0.0.25"
 
 LICENSE = "MIT"
 

@@ -136,21 +136,15 @@ class RabbitMQ(MiddlewareMixin):
                         message.ack()
                         return True
                     else:
-                        logger.info('no ack message')
-                        if int(message.headers.get('retry') or 0) >= retry_count:
-                            message.ack()
-                            logger.info('retry %s count handler failed: %s', retry_count, body)
-                            return True
-                        headers = {'retry': int(message.headers.get('retry') or 0) + 1}
-                        message.ack()
-                        self.retry_send(body=body, queue_name=queue_name, headers=headers)
+                        logger.warning('no ack message')
+                        self.retry_send(message=message, body=body, queue_name=queue_name, retry_count=retry_count)
                         return False
                 except KombuError:  # 不可预测的kombu错误
                     logger.error('Kombu Error pass: %s', traceback.format_exc())
                     return True
                 except Exception as e:
                     logger.error('handler message failed: %s', traceback.format_exc())
-                    message.requeue()
+                    self.retry_send(message=message, body=body, queue_name=queue_name, retry_count=-1)
                     return False
                 finally:
                     logger.info('message handler end: %s', func.__name__)
@@ -182,17 +176,40 @@ class RabbitMQ(MiddlewareMixin):
             )
             logger.info('send data: %s', body)
 
-    def retry_send(self, body, queue_name, headers=None, **kwargs):
-        exchange = Exchange()
+    def retry_send(self, message, body, queue_name, retry_count=0, **kwargs):
+        if retry_count != -1 and int(message.headers.get('retry') or 0) >= retry_count:
+            message.ack()
+            logger.info('retry %s count handler failed: %s', retry_count, body)
+            return True
+        headers = {'retry': int(message.headers.get('retry') or 0) + 1}
+        exchange = Exchange(name="except_retry_communal", channel=self.consumer.producer.channel)
+        dead_letter_params = {
+            'x-dead-letter-exchange': ""
+        }
+        queue = Queue(
+            exchange=exchange,
+            name="except_retry_communal",
+            routing_key=queue_name,
+            queue_arguments=dead_letter_params,
+            channel=self.consumer.producer.channel
+        )
+        current_count = headers["retry"] - 1
+        expiration = min(2 ** current_count, 60)
         with self.wait_send_lock:
+            exchange.declare()
+            queue.declare()
+            queue.bind(channel=self.consumer.producer.channel)
             self.consumer.producer.publish(
                 body=body,
                 exchange=exchange,
                 routing_key=queue_name,
                 retry=True,
                 headers=headers,
+                expiration=expiration,
             )
-            logger.info('retry send data: %s', body)
+            logger.info('retry send data: %s, delay second: %s', body, expiration)
+        message.ack()
+        return True
 
     def delay_send(self, body, routing_key, delay=None, exchange_name=None, **kwargs):
         dead_letter_params = {

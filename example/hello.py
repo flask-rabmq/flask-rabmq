@@ -39,7 +39,7 @@ def flask_rabmq_test(body):
     :param body: json string.
     :return: True/False
         return True, the message will be acknowledged.
-        return False, the message is resended(default 3 count) to the queue.
+        return False, the message is resend(default 3 count) to the queue. delay max(2 ** current_retry, 60)s resend.
         :exception, the message will not be acknowledged.
     """
     logger.info(body)
@@ -49,13 +49,13 @@ def flask_rabmq_test(body):
 @ramq.middleware("handle_before")
 def mq_handler_before(body, message):
     logger.info('rabmq before handler....')
-    logger.info('body: %s, message: %s', body, message)
+    # logger.info('body: %s, message: %s', body, message)
 
 
 @ramq.middleware(attach_to="handle_after")
 def mq_handle_after(body, message):
+    # logger.info('body: %s, message: %s', body, message)
     logger.info('rabmq after handler....')
-    logger.info('body: %s, message: %s', body, message)
 
 
 ramq.run_consumer()
