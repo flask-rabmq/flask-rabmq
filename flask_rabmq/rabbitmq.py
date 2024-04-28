@@ -38,9 +38,12 @@ class RabbitMQ(MiddlewareMixin):
         if app is not None:
             self.init_app(app)
 
-    def init_app(self, app):
+    def init_app(self, app, config: dict = None):
         self.app = app
-        self.config = app.config
+        if config:
+            self.config = config
+        else:
+            self.config = app.config
         self.connection = Connection(self.config.get('RABMQ_RABBITMQ_URL'))
         self.consumer = CP(self.connection, self.message_callback_list)
         self.send_exchange_name = self.config.get('RABMQ_SEND_EXCHANGE_NAME')
