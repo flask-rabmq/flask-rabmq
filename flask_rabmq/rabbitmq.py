@@ -1,6 +1,7 @@
 # -*- coding:utf-8 -*-
 
 import json
+import signal
 import logging
 import re
 import traceback
@@ -51,6 +52,24 @@ class RabbitMQ(MiddlewareMixin):
         self.wait_send_lock = RLock()
 
     def run_consumer(self):
+        # 注册停止消息
+        # 保存原始处理器
+        original_sigint = signal.getsignal(signal.SIGINT)
+        original_sigterm = signal.getsignal(signal.SIGTERM)
+
+        def signal_handler(signum, frame):
+            logger.info(f"Received signal {signum}, stopping consumer...")
+            self.consumer.should_stop = True  # 关键：设置停止标志
+            # 调用原始处理器（如触发默认行为）
+            if signum == signal.SIGINT:
+                original_sigint(signum, frame)
+            elif signum == signal.SIGTERM:
+                original_sigterm(signum, frame)
+            return
+
+        # 注册信号处理器（支持 SIGTERM 和 SIGINT）
+        signal.signal(signal.SIGTERM, signal_handler)
+        signal.signal(signal.SIGINT, signal_handler)
         self._run()
 
     def _run(self):
